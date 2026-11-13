@@ -67,6 +67,10 @@ type RenderOptions struct {
 	// 接入点，也不再要求 warp.Device（校园节点本身就是出口），分组全部由
 	// 这些节点构成；规则、TUN、DNS、端口等骨架仍按本地生成。
 	CloudNodes []ChainProxy
+	// DisableTUN 渲染 tun.enable: false 的纯代理配置（无头/零权限场景）：
+	// mihomo 只监听 mixed-port，流量经 127.0.0.1:7890 进入，不需要
+	// CAP_NET_ADMIN。默认 false 保持 TUN 全局接管不变。
+	DisableTUN bool
 }
 
 const configHeader = `# Cloudflare WARP over MASQUE - mihomo config
@@ -194,7 +198,12 @@ func RenderWithOptions(w warp.Device, options RenderOptions) (string, error) {
 	}
 	// device: 固定 TUN 适配器显示名，供 ICS 热点共享（internal/network/ics）
 	// 按名识别 FreeV6 的虚拟网卡，不依赖 mihomo 默认名。
-	fmt.Fprintf(&b, "mode: %s\n\ntun:\n  enable: true\n  device: FreeV6TUN\n  stack: mixed\n  auto-route: true\n  auto-detect-interface: true\n  strict-route: true\n  dns-hijack:\n    - any:53\n    - tcp://any:53\n\nproxies:\n", options.Mode)
+	tunEnable := "true"
+	if options.DisableTUN {
+		// 纯代理模式：TUN 关闭后其余 tun 字段成为无效声明，mihomo 忽略。
+		tunEnable = "false"
+	}
+	fmt.Fprintf(&b, "mode: %s\n\ntun:\n  enable: %s\n  device: FreeV6TUN\n  stack: mixed\n  auto-route: true\n  auto-detect-interface: true\n  strict-route: true\n  dns-hijack:\n    - any:53\n    - tcp://any:53\n\nproxies:\n", options.Mode, tunEnable)
 	var names []string
 	if cloud {
 		// 校园模式：云端节点即出口，不渲染内置接入点，也不叠链式代理

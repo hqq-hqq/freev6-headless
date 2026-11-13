@@ -43,6 +43,8 @@ func run(args []string) error {
 		return stopMihomo(args[1:])
 	case "status":
 		return statusMihomo(args[1:])
+	case "fetch-core":
+		return fetchCore(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -73,6 +75,7 @@ func renderConfig(args []string) error {
 	outputPath := flags.String("out", filepath.FromSlash("state/mihomo.yaml"), "mihomo YAML output")
 	mode := flags.String("mode", mihomo.ModeRule, "mihomo mode: rule or global")
 	campusCIDRs := flags.String("campus-cidr", "", "comma-separated campus CIDRs allowed to bypass WARP")
+	noTun := flags.Bool("no-tun", false, "render proxy-only config without TUN (no root needed)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -88,7 +91,7 @@ func renderConfig(args []string) error {
 	if err != nil {
 		return err
 	}
-	config, err := mihomo.RenderWithOptions(device, mihomo.RenderOptions{Mode: *mode, CampusCIDRs: splitCommaList(*campusCIDRs), ControllerSecret: controllerSecret})
+	config, err := mihomo.RenderWithOptions(device, mihomo.RenderOptions{Mode: *mode, CampusCIDRs: splitCommaList(*campusCIDRs), ControllerSecret: controllerSecret, DisableTUN: *noTun})
 	if err != nil {
 		return err
 	}
@@ -113,6 +116,7 @@ func startMihomo(args []string) error {
 	snapshotPath := flags.String("network-snapshot", filepath.FromSlash("state/network-snapshot.json"), "network snapshot path")
 	mode := flags.String("mode", mihomo.ModeRule, "mihomo mode: rule or global")
 	campusCIDRs := flags.String("campus-cidr", "", "comma-separated campus CIDRs allowed to bypass WARP")
+	noTun := flags.Bool("no-tun", false, "run proxy-only without TUN (no root needed)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -141,7 +145,7 @@ func startMihomo(args []string) error {
 	if err != nil {
 		return err
 	}
-	config, err := mihomo.RenderWithOptions(device, mihomo.RenderOptions{Mode: *mode, CampusCIDRs: splitCommaList(*campusCIDRs), ControllerSecret: controllerSecret})
+	config, err := mihomo.RenderWithOptions(device, mihomo.RenderOptions{Mode: *mode, CampusCIDRs: splitCommaList(*campusCIDRs), ControllerSecret: controllerSecret, DisableTUN: *noTun})
 	if err != nil {
 		return err
 	}
@@ -250,6 +254,33 @@ func statusMihomo(args []string) error {
 	return nil
 }
 
+// fetchCore 下载并解压 mihomo 内核到 <root>/runtime/（hash 校验 + 多镜像
+// 链见 internal/mihomo/download.go）。Windows GUI 的"下载核心"由 helper
+// 完成；无头 CLI 用本命令补齐同一能力。
+func fetchCore(args []string) error {
+	flags := flag.NewFlagSet("fetch-core", flag.ContinueOnError)
+	rootPath := flags.String("root", ".", "installation or project root that receives runtime/")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	root := *rootPath
+	if root == "" {
+		root = "."
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	result, err := mihomo.DownloadLatest(ctx, root)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("mihomo runtime ready: %s (%s)\nsha256: %s\n", result.Path, result.Version, result.SHA256)
+	if runtime.GOOS != "windows" {
+		fmt.Println("提示: TUN 模式需要 CAP_NET_ADMIN，建议执行:")
+		fmt.Printf("  sudo setcap cap_net_admin,cap_net_bind_service=+ep %s\n", result.Path)
+	}
+	return nil
+}
+
 func readDevice(path string) (warp.Device, error) {
 	var device warp.Device
 	data, err := os.ReadFile(path)
@@ -298,8 +329,9 @@ func resolveRootPath(root, value string) string {
 
 func printUsage() {
 	fmt.Println("freev6 register [-name name] [-state path]")
-	fmt.Println("freev6 render-config [-state path] [-out path] [-mode rule|global] [-campus-cidr cidr1,cidr2]")
-	fmt.Println("freev6 start [-root path] [-binary path] [-state path] [-mode rule|global] [-campus-cidr cidr1,cidr2]")
+	fmt.Println("freev6 render-config [-state path] [-out path] [-mode rule|global] [-campus-cidr cidr1,cidr2] [-no-tun]")
+	fmt.Println("freev6 start [-root path] [-binary path] [-state path] [-mode rule|global] [-campus-cidr cidr1,cidr2] [-no-tun]")
+	fmt.Println("freev6 fetch-core [-root path]")
 	fmt.Println("freev6 stop [-root path] [-pid-file path] [-network-snapshot path]")
 	fmt.Println("freev6 status [-root path] [-pid-file path]")
 	fmt.Println("freev6 version")

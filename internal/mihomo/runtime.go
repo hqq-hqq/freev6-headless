@@ -10,19 +10,27 @@ import (
 
 var ErrBinaryNotFound = errors.New("mihomo runtime binary not found")
 
+// runtimeBinNames 按优先级返回当前平台的内核文件名：微架构变体（v3/v2）
+// 优先，其次是无变体名，最后是通用名。Windows 带 .exe 后缀；Linux 无后缀，
+// 且额外接受 -v2（download.go 的 FREEV6_MIHOMO_AMD64_VARIANT=v2 降级产物）。
+func runtimeBinNames() []string {
+	base := "mihomo-" + runtime.GOOS + "-" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		return []string{base + "-v3.exe", base + ".exe", "mihomo.exe"}
+	}
+	return []string{base + "-v3", base + "-v2", base, "mihomo"}
+}
+
 // RuntimeCandidates returns paths in preference order for the current platform.
 // The runtime directory is the installed layout; state is retained for local development.
 func RuntimeCandidates(root string) []string {
-	name := "mihomo-" + runtime.GOOS + "-" + runtime.GOARCH + ".exe"
-	v3Name := "mihomo-" + runtime.GOOS + "-" + runtime.GOARCH + "-v3.exe"
-	return []string{
-		filepath.Join(root, "runtime", v3Name),
-		filepath.Join(root, "runtime", name),
-		filepath.Join(root, "runtime", "mihomo.exe"),
-		filepath.Join(root, "state", v3Name),
-		filepath.Join(root, "state", name),
-		filepath.Join(root, "state", "mihomo.exe"),
+	var candidates []string
+	for _, dir := range []string{"runtime", "state"} {
+		for _, name := range runtimeBinNames() {
+			candidates = append(candidates, filepath.Join(root, dir, name))
+		}
 	}
+	return candidates
 }
 
 func DiscoverBinary(root string) (string, error) {

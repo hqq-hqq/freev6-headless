@@ -1,0 +1,52 @@
+# nfpm 配置：构建 freev6 的 deb/rpm 原生包（arm64）
+#
+# 构建步骤（仓库根目录执行）：
+#   GOOS=linux GOARCH=arm64 go build -trimpath -ldflags '-s -w' -o dist/freev6-linux-arm64 ./cmd/freev6
+#   go run ./cmd/ensure-geodata
+#   cd scripts/linux/packaging
+#   nfpm package -f nfpm.arm64.yaml -p deb -t freev6_0.1.0_arm64.deb
+#   nfpm package -f nfpm.arm64.yaml -p rpm -t freev6-0.1.0.aarch64.rpm
+name: freev6
+arch: arm64
+platform: linux
+version: 0.1.0
+section: net
+priority: optional
+maintainer: freev6 linux port <noreply@local.invalid>
+description: |
+  FreeV6 无头 Linux CLI — 教育网 IPv6 免流（Cloudflare WARP over MASQUE，mihomo 内核）。
+  纯代理模式零权限；TUN 模式仅需 CAP_NET_ADMIN（setcap / systemd AmbientCapabilities）。
+  非官方移植，上游 evansrrr/free-v6（MIT）。
+homepage: https://github.com/evansrrr/free-v6
+license: MIT
+contents:
+  - src: ../../dist/freev6-linux-arm64
+    dst: /usr/bin/freev6
+    file_info:
+      mode: 0755
+  - src: freev6-setup.sh
+    dst: /usr/bin/freev6-setup
+    file_info:
+      mode: 0755
+  - src: ../../GeoSite.dat
+    dst: /usr/share/freev6/GeoSite.dat
+    file_info:
+      mode: 0644
+  - src: ../../geoip.dat
+    dst: /usr/share/freev6/geoip.dat
+    file_info:
+      mode: 0644
+  - src: ../../country.mmdb
+    dst: /usr/share/freev6/country.mmdb
+    file_info:
+      mode: 0644
+  - src: ../../docs/linux-port.md
+    dst: /usr/share/doc/freev6/README-LINUX.md
+    file_info:
+      mode: 0644
+  - src: ../../LICENSE
+    dst: /usr/share/doc/freev6/LICENSE
+    file_info:
+      mode: 0644
+scripts:
+  postinstall: postinst.sh

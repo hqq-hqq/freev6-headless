@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -18,28 +19,109 @@ import (
 	"github.com/yourname/freev6/internal/stallhttp"
 )
 
-// mihomoGitHubZipURL 是被镜像前缀拼接的发布资产本体；版本与下方
-// expectedRuntimeSHA256 必须一起升级。
-const mihomoGitHubZipURL = "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.31/mihomo-windows-amd64-v3-v1.19.31.zip"
+// mihomoVersion 是锁定下载的核心版本；各平台资产 URL 与 digest 必须与它
+// 配对升级（digest 取自 GitHub release API 公布的资产 digest 字段）。
+const mihomoVersion = "v1.19.31"
+
+const (
+	formatZip  = "zip"
+	formatGzip = "gzip"
+)
+
+// mihomoAsset 描述当前平台要下载的内核资产：GitHub release 资产 URL、
+// 官方公布的 SHA256（downloadRuntimeMirror 按它拒收篡改载荷）、解压后的
+// 内核文件名（与 runtime.go RuntimeCandidates 的候选名保持一致）与压缩格式。
+type mihomoAsset struct {
+	archiveURL string
+	sha256     string
+	outputName string
+	format     string
+}
+
+// currentRuntimeAsset 按运行平台选择要下载的资产。
+//
+// linux amd64 发行版按 x86-64 微架构等级分 v1/v2/v3：v3 需要 AVX2（2014 年
+// 以后的桌面/笔记本 CPU 基本都有，与 Windows 版的 v3 选择一致）；老机器
+// （或部分 NAS/虚拟机 CPU）可用 FREEV6_MIHOMO_AMD64_VARIANT=v2 降级。
+func currentRuntimeAsset() (mihomoAsset, error) {
+	base := "https://github.com/MetaCubeX/mihomo/releases/download/" + mihomoVersion
+	switch {
+	case runtime.GOOS == "windows" && runtime.GOARCH == "amd64":
+		return mihomoAsset{
+			archiveURL: base + "/mihomo-windows-amd64-v3-" + mihomoVersion + ".zip",
+			sha256:     "f1a81678517dee871b51858f2a62d190d014b389057c67db575d1ddba892d19b",
+			outputName: "mihomo-windows-amd64-v3.exe",
+			format:     formatZip,
+		}, nil
+	case runtime.GOOS == "linux" && runtime.GOARCH == "amd64":
+		variant := strings.ToLower(strings.TrimSpace(os.Getenv("FREEV6_MIHOMO_AMD64_VARIANT")))
+		if variant == "" {
+			variant = "v3"
+		}
+		switch variant {
+		case "v3":
+			return mihomoAsset{
+				archiveURL: base + "/mihomo-linux-amd64-v3-" + mihomoVersion + ".gz",
+				sha256:     "4e8808e79f1e452a0300ce1ee89fcaf2cccd5249a100f2238877214e5ca316b3",
+				outputName: "mihomo-linux-amd64-v3",
+				format:     formatGzip,
+			}, nil
+		case "v2":
+			return mihomoAsset{
+				archiveURL: base + "/mihomo-linux-amd64-v2-" + mihomoVersion + ".gz",
+				sha256:     "560a14ba51482e85e90b6c9b141f3b7b1543795f9ecd82eb9a6c5153a1b7960b",
+				outputName: "mihomo-linux-amd64-v2",
+				format:     formatGzip,
+			}, nil
+		default:
+			return mihomoAsset{}, fmt.Errorf("不支持的 FREEV6_MIHOMO_AMD64_VARIANT %q（可选 v2/v3）", variant)
+		}
+	case runtime.GOOS == "linux" && runtime.GOARCH == "arm64":
+		return mihomoAsset{
+			archiveURL: base + "/mihomo-linux-arm64-" + mihomoVersion + ".gz",
+			sha256:     "9e0f11afbf38426b8bd88fdc594678f8161c57eccb4e1b77acb12b493904f1d4",
+			outputName: "mihomo-linux-arm64",
+			format:     formatGzip,
+		}, nil
+	default:
+		return mihomoAsset{}, fmt.Errorf("mihomo 内核自动下载暂不支持 %s/%s：请手动放置 mihomo 到 runtime/ 目录（候选名见 runtime.go）", runtime.GOOS, runtime.GOARCH)
+	}
+}
+
+// mustCurrentAsset 供包级变量初始化使用。不支持的平台不能在 init 阶段
+// panic——CLI/helper 仍可能只用本地已放置的内核；下载真正被调用时
+// DownloadLatestWithProgress 会通过 currentRuntimeAsset 报出可读错误。
+func mustCurrentAsset() mihomoAsset {
+	asset, err := currentRuntimeAsset()
+	if err != nil {
+		return mihomoAsset{sha256: "unavailable-on-this-platform"}
+	}
+	return asset
+}
 
 // expectedRuntimeSHA256 是 GitHub release API 对该资产公布的 digest。
 // 多镜像意味着多个不受控分发方，下载的又是会被执行的文件——哈希必须
 // 与固定值比对，不匹配按该线路失败处理（投毒/截断/换包都到此为止）。
 // var 形式便于测试注入本地构造的载荷摘要。
-var expectedRuntimeSHA256 = "f1a81678517dee871b51858f2a62d190d014b389057c67db575d1ddba892d19b"
+var expectedRuntimeSHA256 = mustCurrentAsset().sha256
 
-// runtimeDownloadURLs 按优先级排列：gh-proxy 家族是本项目核心/更新下载
+// buildMirrorList 按优先级排列：gh-proxy 家族是本项目核心/更新下载
 // 的大陆加速通道（geodata.go 同源），按 2026-10 校园网实测 1MB 首段延迟
 // 排序（v6/v4 最快，现役 gh-proxy.com 保留前三）；github 直连兜底给
-// 国际可达的网络。变量形式便于测试注入。
-var runtimeDownloadURLs = []string{
-	"https://v6.gh-proxy.org/" + mihomoGitHubZipURL,
-	"https://v4.gh-proxy.org/" + mihomoGitHubZipURL,
-	"https://gh-proxy.com/" + mihomoGitHubZipURL,
-	"https://axisnow.gh-proxy.org/" + mihomoGitHubZipURL,
-	"https://cdn.gh-proxy.org/" + mihomoGitHubZipURL,
-	mihomoGitHubZipURL,
+// 国际可达的网络。
+func buildMirrorList(archiveURL string) []string {
+	return []string{
+		"https://v6.gh-proxy.org/" + archiveURL,
+		"https://v4.gh-proxy.org/" + archiveURL,
+		"https://gh-proxy.com/" + archiveURL,
+		"https://axisnow.gh-proxy.org/" + archiveURL,
+		"https://cdn.gh-proxy.org/" + archiveURL,
+		archiveURL,
+	}
 }
+
+// runtimeDownloadURLs 保留包级变量形式，便于测试注入本地镜像链。
+var runtimeDownloadURLs = buildMirrorList(mustCurrentAsset().archiveURL)
 
 // 单镜像预算：停滞 10s 内无字节进展立即切线路（挂死的 gh-proxy 只烧掉
 // 10 秒，慢而有进展的下载不被误杀）；硬上限兜住持续蠕动的镜像。总预算
@@ -73,6 +155,10 @@ func DownloadLatest(ctx context.Context, root string) (DownloadResult, error) {
 // DownloadLatestWithProgress 与 DownloadLatest 相同，额外通过 progress
 // 上报下载字节进度（progress 为 nil 时不报）。
 func DownloadLatestWithProgress(ctx context.Context, root string, progress progressSink) (DownloadResult, error) {
+	asset, assetErr := currentRuntimeAsset()
+	if assetErr != nil {
+		return DownloadResult{}, assetErr
+	}
 	client := &http.Client{}
 	var failures []string
 	skipped := 0
@@ -88,10 +174,10 @@ func DownloadLatestWithProgress(ctx context.Context, root string, progress progr
 				_ = os.Remove(temporaryPath)
 				return DownloadResult{}, mkdirErr
 			}
-			outputPath, extractErr := extractRuntime(temporaryPath, runtimeDir)
+			outputPath, extractErr := extractRuntime(temporaryPath, runtimeDir, asset)
 			_ = os.Remove(temporaryPath)
 			if extractErr == nil {
-				return DownloadResult{Version: "v1.19.31", Path: outputPath, SHA256: digest}, nil
+				return DownloadResult{Version: mihomoVersion, Path: outputPath, SHA256: digest}, nil
 			}
 			// 包体已通过 SHA256 校验仍解不开 → 环境问题而非线路问题，
 			// 但换线路重试无害且可能掩盖不了磁盘错误；按线路失败记录。
@@ -140,7 +226,7 @@ func downloadRuntimeMirror(ctx context.Context, client *http.Client, source stri
 		return "", "", fmt.Errorf("mihomo runtime download returned HTTP %s", response.Status)
 	}
 
-	temporary, createErr := os.CreateTemp("", "freev6-mihomo-*.zip")
+	temporary, createErr := os.CreateTemp("", "freev6-mihomo-*")
 	if createErr != nil {
 		return "", "", createErr
 	}
@@ -195,11 +281,10 @@ func (p *progressReportingReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
-func extractRuntime(archivePath, runtimeDir string) (string, error) {
-	outputPath := filepath.Join(runtimeDir, "mihomo-windows-amd64-v3.exe")
-	name := strings.ToLower(filepath.Base(archivePath))
+func extractRuntime(archivePath, runtimeDir string, asset mihomoAsset) (string, error) {
+	outputPath := filepath.Join(runtimeDir, asset.outputName)
 
-	if strings.HasSuffix(name, ".zip") {
+	if asset.format == formatZip {
 		archive, err := zip.OpenReader(archivePath)
 		if err != nil {
 			return "", fmt.Errorf("open mihomo archive: %w", err)

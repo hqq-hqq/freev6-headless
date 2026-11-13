@@ -5,11 +5,11 @@ package network
 import "context"
 
 func RestoreSnapshot(context.Context, Snapshot) error {
-	return ErrWindowsOnly
+	return nil
 }
 
 func RestoreHotspot(context.Context, Snapshot) error {
-	return ErrWindowsOnly
+	return nil
 }
 
 func RestoreDNS(context.Context, Snapshot) {}
