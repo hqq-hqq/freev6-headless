@@ -1,70 +1,91 @@
 <div align="center">
-<img alt="logo" height="100" width="100" src="src-tauri/icons/128x128.png" />
-<h2> FreeV6 </h2>
-<p> 教育网通用 IPv6 免流客户端 </p>
 
-[下载](https://freev6.cc.cd/download) | [使用说明](https://freev6.cc.cd/guide/introduction) | [实现原理](https://ich.cc.cd/2026/05/11/mianliu/) | [官网](https://freev6.cc.cd)
+<h1>FreeV6 Headless</h1>
+<p><strong>教育网通用 IPv6 免流 · 无头 Linux 移植版</strong></p>
+<p>CLI / deb / rpm · 双模式（TUN 全局接管 / 纯代理）· 为无桌面与 SSH 服务器而生</p>
 
-<br />
+<a href="https://github.com/hqq-hqq/freev6-headless/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/hqq-hqq/freev6-headless?style=flat-square&include_prereleases"></a>
+<a href="https://github.com/evansrrr/free-v6"><img alt="Upstream" src="https://img.shields.io/badge/upstream-evansrrr%2Ffree--v6-blue?style=flat-square"></a>
+<a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/hqq-hqq/freev6-headless?style=flat-square"></a>
 
-<a href="https://github.com/evansrrr/free-v6/stargazers">
-<img alt="Stargazers" src="https://img.shields.io/github/stars/evansrrr/free-v6?style=for-the-badge&logo=github&color=f4dbd6&logoColor=D9E0EE&labelColor=302D41"></a>
-<a href="https://github.com/evansrrr/free-v6/releases/latest">
-<img alt="Releases" src="https://img.shields.io/github/release/evansrrr/free-v6.svg?style=for-the-badge&logo=semantic-release&color=f5bde6&logoColor=D9E0EE&labelColor=302D41"/></a>
-<a href="https://github.com/evansrrr/free-v6/blob/main/LICENSE">
-<img alt="License" src="https://img.shields.io/github/license/evansrrr/free-v6?style=for-the-badge&logo=conventionalcommits&color=ee99a0&logoColor=D9E0EE&labelColor=302D41"></a>
-<a href="https://github.com/evansrrr/free-v6/issues">
-<img alt="Issues" src="https://img.shields.io/github/issues/evansrrr/free-v6?style=for-the-badge&color=a6da95"></a>
 </div>
 
-<br />
+---
 
-![freev6-preview.webp](https://imgs.ich.cc.cd/file/public/1792683632507_freev6-preview.webp)
+> [!IMPORTANT]
+> 本仓库是 [evansrrr/free-v6](https://github.com/evansrrr/free-v6)（Windows 桌面版，MIT）的**非官方移植**。免流核心逻辑与上游一致：校园网（CERNET2）IPv6 流量不计费 → 用 mihomo 把 IPv4 流量封装进 28 个 Cloudflare WARP（MASQUE）IPv6 接入点出去。移植仅替换了 Windows 专属的内核下载、网络快照与权限路径，详见[与上游的差异](#与上游的差异)。
 
-## 简要说明
+## 特性
 
-> [!TIP]
->
-> 详细功能及使用说明请访问 [FreeV6 官网](https://freev6.cc.cd)
+- **双模式随时切换**：`TUN 全局接管`（整机免流）↔ `纯代理`（零权限，给需要的程序配 `127.0.0.1:7890`）
+- **权限极简**：TUN 模式只需要 `CAP_NET_ADMIN` 一项（`setcap` 或 systemd `AmbientCapabilities`），全程不需要以 root 运行免流组件
+- **无头友好**：纯 CLI + systemd 服务 + SSH 隧道 Web 管理面板（等效上游"接入点"页的节点切换与测延迟）
+- **内核自动下载**：GitHub 多镜像链 + 固定 SHA256 校验，支持 linux amd64 v3/v2（老 CPU 用 v2）与 arm64
+- **发行版原生包**：deb / rpm（amd64 + arm64），装完一条 `freev6-setup` 完成全部配置
 
-支持以下桌面平台：
+## 安装
 
-- Windows 11 x64
-- Windows 10 x64 部分支持
+从 [Releases](https://github.com/hqq-hqq/freev6-headless/releases/latest) 下载对应架构的包：
 
-由于软件未签名，下载或首次运行如被拦截可选择 “更多信息” -> “仍要继续”
+```bash
+# Debian / Ubuntu / Deepin
+sudo apt install ./freev6_0.1.0_amd64.deb          # arm64 用 freev6_0.1.0_arm64.deb
 
-首次运行需要下载核心（~21MB），点击**启动免流**并按照提示点击**下载**，程序会自动完成下载安装
+# RHEL / Fedora / openEuler / 麒麟
+sudo dnf install ./freev6-0.1.0.x86_64.rpm         # arm64 用 freev6-0.1.0.aarch64.rpm
 
-启动免流后可在**接入点**页进行延迟测试，更换延迟较低的接入点
+# 任意发行版：便携 tarball
+tar xzf free-v6-linux-headless.tar.gz && cd free-v6-linux
+sudo sh install.sh --service
+```
 
-**设置**页包含其他功能，例如“绕过校园网/白名单”、“共享移动热点”、“开机自启”等等
+装完跑一次配置向导（自动完成 WARP 注册、内核下载、配置渲染、setcap、systemd 启动）：
 
-bug、问题和建议欢迎提 [issue](https://github.com/evansrrr/free-v6/issues)，再点点 **star** 喵
+```bash
+sudo freev6-setup --campus-cidr "10.0.0.0/8,192.168.0.0/16" --service   # TUN 模式（强烈建议带校园网段，防 SSH 断连）
+sudo freev6-setup --no-tun                                              # 或纯代理零权限模式
+```
+
+## 使用
+
+```bash
+freev6 start / stop / status          # 手动模式（与 --service 二选一）
+freev6 fetch-core                     # 单独下载/更新 mihomo 内核
+freev6 render-config -no-tun ...      # 切换纯代理模式，去掉 -no-tun 切回 TUN
+curl -x http://127.0.0.1:7890 https://www.cloudflare.com/cdn-cgi/trace   # 验证出口（warp=on 即生效）
+```
+
+远程管理面板（无桌面机器）：
+
+```bash
+ssh -L 9090:127.0.0.1:9090 user@host
+# 浏览器打开 https://metacubexd.pages.dev → API http://127.0.0.1:9090
+# secret 见 /var/lib/freev6/state/mihomo.yaml
+```
+
+完整使用说明（权限矩阵、模式切换、SSH 断连防护、故障排查）见 **[docs/linux-port.md](docs/linux-port.md)**。
+
+## 与上游的差异
+
+| 文件 | 改动 |
+|---|---|
+| `internal/mihomo/download.go` | 内核资产按 GOOS/GOARCH 选择（windows zip / linux gz），哈希表补 linux-amd64 v3/v2 与 linux-arm64（值取自 GitHub Release API digest 并实际下载复核） |
+| `internal/mihomo/runtime.go` | 内核候选名去掉硬编码 `.exe`，Linux 识别 `mihomo-linux-<arch>[-v2|-v3]` |
+| `internal/network/snapshot_other.go` / `restore_other.go` | 非 Windows 平台快照/还原降级 no-op（mihomo TUN 路由随进程生命周期自回收） |
+| `internal/mihomo/config.go` | `RenderOptions.DisableTUN` → 渲染 `tun.enable: false` |
+| `cmd/freev6/main.go` | `render-config`/`start` 增加 `-no-tun`；新增 `fetch-core` 子命令 |
+| `scripts/linux/` | 便携安装脚本 + nfpm deb/rpm 打包配置 |
+
+桌面版功能（Tauri GUI、ICS 热点共享、NSIS 自更新、开机自启计划任务）不在本仓库范围——上游原版请访问 [evansrrr/free-v6](https://github.com/evansrrr/free-v6) 与 [FreeV6 官网](https://freev6.cc.cd)。
 
 ## 免责声明
 
 本软件仅供学习和研究使用，请勿用于任何非法用途。使用本软件产生的一切后果由用户自行承担。
 
-- 开发者不对本软件适用性、稳定性作任何明示或暗示的保证，亦不对任何直接、间接、特殊、偶然或后果性损害承担责任
-- 部分功能依赖第三方 API 与服务，使用者须自行确保其使用符合相关法律法规及服务协议
-- 用户应在遵守校园网及相关网络工具使用条款和规定的前提下使用本软件，开发者不对用户违规使用的行为及其后果负责
-- 因使用本软件而导致的账号被限制、设备被隔离或其他损失，开发者不承担任何责任
-
-完整条款见 [用户协议与免责声明](docs/agreement.md) 与 [隐私政策](docs/privacy.md)。使用本软件即表示你已充分理解并同意上述全部条款。
+- 开发者不对本软件适用性、稳定性作任何明示或暗示的保证
+- 部分功能依赖第三方 API 与服务（Cloudflare），使用者须自行确保其使用符合相关法律法规及服务协议
+- 用户应在遵守校园网及相关网络工具使用条款的前提下使用本软件，因违规使用导致的账号限制、设备隔离等后果自行承担
 
 ## 许可证
 
-本项目采用 [MIT](LICENSE) 许可，第三方组件许可见 [THIRD-PARTY.txt](THIRD-PARTY.txt) 与 [LICENSES/](LICENSES/)
-
-## 赞赏
-
-感谢支持！请我杯喝的QwQ
-
-<img alt="reward" height="200" width="200" src="https://img.ich.cc.cd/file/ichblog/img/reward.jpg" />
-
-<br />
-
-**鸣谢**：
-
-`仍需妙手` `别说了，困` `星汉灿烂` `匿名`
+本项目与上游均采用 [MIT](LICENSE) 许可。上游桌面版：[evansrrr/free-v6](https://github.com/evansrrr/free-v6) · 官网：[freev6.cc.cd](https://freev6.cc.cd)
