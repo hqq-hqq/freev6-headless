@@ -97,6 +97,14 @@ echo "    以上网段将 DIRECT 直连，SSH 与内网访问不受 TUN 影响"
 
 echo "==> 渲染 mihomo 配置..."
 RENDER_ARGS="render-config -state $STATE/warp.json -out $STATE/mihomo.yaml"
+# 额外直连域名：默认 cpolar.com（隧道穿透客户端与服务端域名直连，避免
+# 依赖 WARP 可用性、出口 IP 变化与绕路延迟；流量极小，计费影响可忽略）。
+# 设 FREEV6_EXTRA_DOMAINS="" 移除，或逗号分隔追加其他域名。
+EXTRA_DOMAINS="${FREEV6_EXTRA_DOMAINS:-cpolar.com}"
+if [ -n "$EXTRA_DOMAINS" ]; then
+  CAMPUS_CIDR="$CAMPUS_CIDR,$EXTRA_DOMAINS"
+  echo "==> 直连域名: $EXTRA_DOMAINS"
+fi
 if [ -n "$CAMPUS_CIDR" ]; then
   RENDER_ARGS="$RENDER_ARGS -campus-cidr $CAMPUS_CIDR"
 fi
