@@ -13,7 +13,7 @@
 ---
 
 > [!IMPORTANT]
-> 本仓库是 [evansrrr/free-v6](https://github.com/evansrrr/free-v6)（Windows 桌面版，MIT）的**非官方移植**。免流核心逻辑与上游一致：校园网（CERNET2）IPv6 流量不计费 → 用 mihomo 把 IPv4 流量封装进 28 个 Cloudflare WARP（MASQUE）IPv6 接入点出去。移植仅替换了 Windows 专属的内核下载、网络快照与权限路径，详见[与上游的差异](#与上游的差异)。
+> 本仓库是 [evansrrr/free-v6](https://github.com/evansrrr/free-v6)（Windows 桌面版，MIT）的**非官方移植**。免流核心逻辑与上游一致：校园网（CERNET2）IPv6 流量不计费 → 用 mihomo 把 IPv4 流量封装进 28 个 Cloudflare WARP（MASQUE）IPv6 接入点出去。移植仅替换了 Windows 专属的内核下载、网络快照与权限路径，并自动化了直连白名单，详见[与上游的差异](#与上游的差异)。
 
 ## 特性
 
@@ -22,6 +22,7 @@
 - **无头友好**：纯 CLI + systemd 服务 + SSH 隧道 Web 管理面板（等效上游"接入点"页的节点切换与测延迟）
 - **内核自动下载**：GitHub 多镜像链 + 固定 SHA256 校验，支持 linux amd64 v3/v2（老 CPU 用 v2）与 arm64
 - **发行版原生包**：deb / rpm（amd64 + arm64），装完一条 `freev6-setup` 完成全部配置
+- **直连白名单自动化**：安装向导内置保留段基线（云元数据 / CGNAT / 组播 / 教育网 IPv6）+ 自动探测本机网卡段（`202.*` 校园公网段放大到 /16）+ `cpolar.com` 穿透域名直连——SSH、内网、穿透服务默认不受 TUN 影响
 
 ## 安装
 
@@ -73,8 +74,8 @@ ssh -L 9090:127.0.0.1:9090 user@host
 | `internal/mihomo/runtime.go` | 内核候选名去掉硬编码 `.exe`，Linux 识别 `mihomo-linux-<arch>[-v2|-v3]` |
 | `internal/network/snapshot_other.go` / `restore_other.go` | 非 Windows 平台快照/还原降级 no-op（mihomo TUN 路由随进程生命周期自回收） |
 | `internal/mihomo/config.go` | `RenderOptions.DisableTUN` → 渲染 `tun.enable: false` |
-| `cmd/freev6/main.go` | `render-config`/`start` 增加 `-no-tun`；新增 `fetch-core` 子命令 |
-| `scripts/linux/` | 便携安装脚本 + nfpm deb/rpm 打包配置 |
+| `cmd/freev6/main.go` | `render-config`/`start` 增加 `-no-tun`（纯代理模式跳过管理员检查）；新增 `fetch-core` 子命令 |
+| `scripts/linux/` | 安装/向导脚本：自动直连白名单（保留段基线 + 网卡段探测、`202.*` → /16、`cpolar.com` 直连）+ nfpm deb/rpm 打包配置 |
 
 桌面版功能（Tauri GUI、ICS 热点共享、NSIS 自更新、开机自启计划任务）不在本仓库范围——上游原版请访问 [evansrrr/free-v6](https://github.com/evansrrr/free-v6) 与 [FreeV6 官网](https://freev6.cc.cd)。
 

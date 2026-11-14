@@ -39,7 +39,7 @@ sudo rm -rf /var/lib/freev6     # 数据目录（WARP 凭据与配置）
 
 包内容：`/usr/bin/freev6`（CLI）、`/usr/bin/freev6-setup`（配置向导）、`/usr/share/freev6/`（地理数据）。mihomo 内核在向导运行时按平台下载并做 SHA256 校验。
 
-> **直连白名单自动生成**：向导始终内置保留段基线（`127/8` 回环、`169.254/16` 云元数据、`100.64/10` CGNAT/Tailscale、`224/4` 组播、`2001:da8::/32` 教育网 IPv6——直连零损失）；未传 `--campus-cidr` 时再自动探测本机网卡段（私网段放大到整 /8|/12|/16，`202.*` 公网段——高校/CERNET 常见——放大到 /16，其余公网段取 /24，IPv6 全局段按 /64）；显式传参在保留段之上叠加。SSH 与内网访问默认安全。
+> **直连白名单自动生成**：向导始终内置保留段基线（`127/8` 回环、`169.254/16` 云元数据、`100.64/10` CGNAT/Tailscale、`224/4` 组播、`2001:da8::/32` 教育网 IPv6——直连零损失）；未传 `--campus-cidr` 时再自动探测本机网卡段（私网段放大到整 /8|/12|/16，`202.*` 公网段——高校/CERNET 常见——放大到 /16，其余公网段取 /24，IPv6 全局段按 /64）；**`cpolar.com` 穿透域名默认直连**（`FREEV6_EXTRA_DOMAINS` 可调整）；显式传参在保留段之上叠加。SSH 与内网访问默认安全。
 
 **方式 B — 便携 tarball**（任何发行版）
 
@@ -125,6 +125,7 @@ curl -x http://127.0.0.1:7890 https://www.cloudflare.com/cdn-cgi/trace
 | `internal/mihomo/runtime.go` | 内核候选名去掉硬编码 `.exe`，Linux 识别 `mihomo-linux-<arch>[-v2|-v3]` |
 | `internal/network/snapshot_other.go` / `restore_other.go` | 非 Windows 平台快照/还原降级为 no-op（mihomo TUN 路由随进程生命周期自回收） |
 | `internal/mihomo/config.go` | `RenderOptions.DisableTUN` → 渲染 `tun.enable: false` |
-| `cmd/freev6/main.go` | `render-config`/`start` 增加 `-no-tun`；新增 `fetch-core` 子命令 |
+| `cmd/freev6/main.go` | `render-config`/`start` 增加 `-no-tun`（纯代理模式跳过管理员检查）；新增 `fetch-core` 子命令 |
+| `scripts/linux/` | 安装/向导脚本：自动直连白名单（保留段基线 + 网卡段探测、`202.*` → /16、`cpolar.com` 直连）+ nfpm deb/rpm 打包配置 |
 
 交叉编译：`GOOS=linux GOARCH=amd64 go build -trimpath -ldflags '-s -w' ./cmd/freev6`（Go ≥ 1.25）。
