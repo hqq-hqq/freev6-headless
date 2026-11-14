@@ -71,13 +71,17 @@ else
   echo "==> WARP 设备已注册，跳过"
 fi
 
-# ===== SSH 防断连：自动把本机网段加入白名单 =====
-# TUN 接管路由后，SSH 进本机的来源网段必须走 DIRECT，否则会话会被隧道
-# 接管而断连。显式传了 --campus-cidr 时以它为准；未传时自动探测本机活动
-# 网卡：私网段放大到整 /8|/12|/16，202.* 公网段（高校/CERNET 常见）放大到
-# /16，其余公网段取 /24，IPv6 全局段按原前缀。
+# ===== 直连白名单：SSH 防断连 + 保留段防误拦截 =====
+# 白名单由三部分合成：保留段基线（始终包含）→ 用户显式 --campus-cidr →
+# 自动探测（未传参时）。TUN 接管路由后，SSH 进本机的来源网段必须走
+# DIRECT，否则会话会被隧道接管而断连。
+# 保留段直连无免流损失（均为不可路由公网的保留空间或免费教育网 IPv6）：
+#   127/8 回环；169.254/16 云元数据/链路本地（云 agent 拿凭据用）；
+#   100.64/10 CGNAT（Tailscale 等）；224/4 组播（mDNS/SSDP/打印发现）；
+#   2001:da8::/32 CERNET2 教育网 IPv6（直连本来免费且更快）。
+RESERVED="127.0.0.0/8,169.254.0.0/16,100.64.0.0/10,224.0.0.0/4,2001:da8::/32"
+DETECTED=""
 if [ -z "$CAMPUS_CIDR" ]; then
-  DETECTED=""
   for cidr in $(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}'); do
     net="${cidr%/*}"
     case "$net" in
@@ -97,12 +101,14 @@ if [ -z "$CAMPUS_CIDR" ]; then
   done
   CAMPUS_CIDR=$(echo $DETECTED | tr ' ' '\n' | sort -u | paste -sd, -)
   if [ -n "$CAMPUS_CIDR" ]; then
-    echo "==> 自动白名单（未传 --campus-cidr）: $CAMPUS_CIDR"
-    echo "    以上网段将 DIRECT 直连，SSH 与内网访问不受 TUN 影响"
+    echo "==> 自动探测网卡段: $CAMPUS_CIDR"
   else
-    echo "!! 未探测到活动网卡网段，建议手动传 --campus-cidr"
+    echo "!! 未探测到活动网卡网段，仅使用保留段白名单"
   fi
 fi
+CAMPUS_CIDR="$RESERVED,$CAMPUS_CIDR"
+echo "==> 直连白名单（保留段 + 网卡段）: $CAMPUS_CIDR"
+echo "    以上网段将 DIRECT 直连，SSH 与内网访问不受 TUN 影响"
 
 echo "==> 渲染 mihomo 配置..."
 RENDER_ARGS="render-config -state $STATE/warp.json -out $STATE/mihomo.yaml"
