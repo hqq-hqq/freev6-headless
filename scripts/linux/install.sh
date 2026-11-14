@@ -71,6 +71,33 @@ else
   echo "==> WARP 设备已注册，跳过"
 fi
 
+# ===== SSH 防断连：自动把本机网段加入白名单 =====
+# TUN 接管路由后，SSH 进本机的来源网段必须走 DIRECT，否则会话会被隧道
+# 接管而断连。显式传了 --campus-cidr 时以它为准；未传时自动探测本机活动
+# 网卡：私网段放大到整 /8|/12|/16，公网段取 /24，IPv6 全局段按原前缀。
+if [ -z "$CAMPUS_CIDR" ]; then
+  DETECTED=""
+  for cidr in $(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}'); do
+    net="${cidr%/*}"
+    case "$net" in
+      10.*) DETECTED="$DETECTED 10.0.0.0/8" ;;
+      172.1[6-9].*|172.2[0-9].*|172.3[01].*) DETECTED="$DETECTED 172.16.0.0/12" ;;
+      192.168.*) DETECTED="$DETECTED 192.168.0.0/16" ;;
+      *) DETECTED="$DETECTED $net/24" ;;
+    esac
+  done
+  for cidr in $(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}'); do
+    DETECTED="$DETECTED $cidr"
+  done
+  CAMPUS_CIDR=$(echo $DETECTED | tr ' ' '\n' | sort -u | paste -sd, -)
+  if [ -n "$CAMPUS_CIDR" ]; then
+    echo "==> 自动白名单（未传 --campus-cidr）: $CAMPUS_CIDR"
+    echo "    以上网段将 DIRECT 直连，SSH 与内网访问不受 TUN 影响"
+  else
+    echo "!! 未探测到活动网卡网段，建议手动传 --campus-cidr"
+  fi
+fi
+
 echo "==> 渲染 mihomo 配置..."
 RENDER_ARGS="render-config -state $STATE/warp.json -out $STATE/mihomo.yaml"
 if [ -n "$CAMPUS_CIDR" ]; then
