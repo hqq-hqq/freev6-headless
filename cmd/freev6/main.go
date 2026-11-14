@@ -120,7 +120,9 @@ func startMihomo(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if runtime.GOOS == "windows" {
+	// 管理员检查仅针对 TUN 模式：纯代理（-no-tun）不创建 TUN、不改路由，
+	// 普通权限即可。Linux 无此检查——TUN 能力由 setcap/systemd 授予内核进程。
+	if runtime.GOOS == "windows" && !*noTun {
 		adminCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		isAdmin, err := network.IsAdministrator(adminCtx)
