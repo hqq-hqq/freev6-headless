@@ -59,7 +59,8 @@ fi
 # ===== SSH 防断连：自动把本机网段加入白名单 =====
 # TUN 接管路由后，SSH 进本机的来源网段必须走 DIRECT，否则会话会被隧道
 # 接管而断连。显式传了 --campus-cidr 时以它为准；未传时自动探测本机活动
-# 网卡：私网段放大到整 /8|/12|/16，公网段取 /24，IPv6 全局段按原前缀。
+# 网卡：私网段放大到整 /8|/12|/16，202.* 公网段（高校/CERNET 常见）放大到
+# /16，其余公网段取 /24，IPv6 全局段按原前缀。
 if [ -z "$CAMPUS_CIDR" ]; then
   DETECTED=""
   for cidr in $(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}'); do
@@ -68,6 +69,11 @@ if [ -z "$CAMPUS_CIDR" ]; then
       10.*) DETECTED="$DETECTED 10.0.0.0/8" ;;
       172.1[6-9].*|172.2[0-9].*|172.3[01].*) DETECTED="$DETECTED 172.16.0.0/12" ;;
       192.168.*) DETECTED="$DETECTED 192.168.0.0/16" ;;
+      202.*)
+        # 202/8 集中了大量高校/CERNET 公网段（如 202.204.x）：放大到 /16
+        # （校级网块），同校跨楼宇的 SSH 来源与校内服务都能直连。
+        o1="${net%%.*}"; _rest="${net#*.}"; o2="${_rest%%.*}"
+        DETECTED="$DETECTED $o1.$o2.0.0/16" ;;
       *) DETECTED="$DETECTED $net/24" ;;
     esac
   done
